@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -41,22 +42,52 @@ class CertificateCommand(CkanCommand):
         # Logging, post-config
         self.setup_logging()
 
+        from pylons import config
+
+        site_url = config.get('ckan.site_url')
+
+        # For test
+        site_url = 'http://data.gov.uk'
+
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
         for entry in client.generate_entries(self.log):
-            pkg = self._get_package(entry)
-            print entry
+            print entry.get('about') or entry.keys()
 
+            # We have to handle the case where the rel='about' might be missing, if so
+            # we'll ignore it and catch it next time
+            if not entry.get('about', '').startswith(site_url):
+                self.log.debug('Ignoring {0}'.format(entry.get('about','No rel="about"')))
+                continue
 
+            pkg = self._get_package_from_url(entry.get('about'))
+            if not pkg:
+                self.log.error("Unable to find package for {0}".format(entry.get('about')))
+                continue
 
-    def _get_package(self, entry):
+            # Build the JSON subset we want to describe the certificate
+            badge_data = client.get_badge_data(self.log, entry['alternate'])
+            badge_data['cert_title'] = entry.get('content', '')
+
+            print '***', pkg.extras.get('odi-certificate', '')
+            pkg.extras['odi-certificate'] = json.dumps(badge_data)
+            model.Session.add(pkg)
+
+        model.Session.commit()
+
+    def _get_package_from_url(self, url):
         """
         Pulls data from the entry in an attempt to find a local package,
         which, if successful is returned.  None is returned if the package
         has been deleted, or is not a package for this site.
         """
+        from urlparse import urlparse
         import ckan.model as model
 
-        return None
+        # Package name is the last part of the URL
+        obj = urlparse(url)
+        name = obj.path.split('/')[-1]
+
+        return model.Package.get(name)
 

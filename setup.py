@@ -28,8 +28,7 @@ setup(
     [paste.paster_command]
     fetch_certs = ckanext.certificates.commands:CertificateCommand
 
-        [ckan.plugins]
-	# Add plugins here, eg
-	# myplugin=ckanext.certificates:PluginClass
+    [ckan.plugins]
+	certificates=ckanext.certificates.plugin:CertificatesPlugin
 	""",
 )
