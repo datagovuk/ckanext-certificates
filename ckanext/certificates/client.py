@@ -30,10 +30,12 @@ def entry_to_dict(entry):
             href = node.get('href')
 
             if rel == 'http://schema.theodi.org/certificate#badge':
-                if node.get('type') == 'text/html':
-                    d['badge_html'] = href
-                elif node.get('type') == 'application/javascript':
-                    d['badge_json'] = href
+                types = {
+                    'text/html': 'badge_html',
+                    'application/javascript': 'badge_json',
+                    'image/png': 'badge_png',
+                }
+                d[types[node.get('type')]] = href
             elif rel:
                 d[rel] = href
             else:
@@ -123,7 +125,6 @@ def get_badge_data(log, url):
         'jurisdiction': data['jurisdiction'],
         'title': data['dataset']['title'],
         'status': data.get('status', ''),
-        'image_url': data.get('image', ''),
         'certificate_url': data.get('uri', ''),
     }
     return badge
