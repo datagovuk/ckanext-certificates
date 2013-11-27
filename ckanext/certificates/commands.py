@@ -69,9 +69,7 @@ class CertificateCommand(CkanCommand):
             # Build the JSON subset we want to describe the certificate
             badge_data = client.get_badge_data(self.log, entry['alternate'])
             badge_data['cert_title'] = entry.get('content', '')
-            badge_data['image_url'] = entry.get('badge_png', '')
 
-            print '***', pkg.extras.get('odi-certificate', '')
             pkg.extras['odi-certificate'] = json.dumps(badge_data)
             model.Session.add(pkg)
 

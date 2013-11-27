@@ -33,7 +33,6 @@ def entry_to_dict(entry):
                 types = {
                     'text/html': 'badge_html',
                     'application/javascript': 'badge_json',
-                    'image/png': 'badge_png',
                 }
                 d[types[node.get('type')]] = href
             elif rel:
@@ -126,6 +125,7 @@ def get_badge_data(log, url):
         'title': data['dataset']['title'],
         'status': data.get('status', ''),
         'certificate_url': data.get('uri', ''),
+        'badge_url': data.get('badges', {}).get('image/png', ''),
     }
     return badge
 
