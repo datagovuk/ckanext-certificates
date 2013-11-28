@@ -125,14 +125,15 @@ def get_badge_data(log, url):
         'status': data.get('status', ''),
         'certificate_url': data.get('uri', ''),
         'badge_url': data.get('badges', {}).get('image/png', ''),
+        'certification_type': data.get('certification_type', '')
     }
 
     # Source. Dependant on who certified it.
-    # If Self-certified: Self-certified by ['dataset']['publisher']
-    # Otherwise just the text
-
-    badge['source'] = "%s (unverified)" % data['dataset']['publisher']
-    print badge
+    cert_type = badge.get('certification_type')
+    if cert_type == 'self certified':
+        badge['source'] = "Self-Certified by %s (unverified)" % data['dataset']['publisher']
+    elif cert_type == 'community certified':
+        badge['source'] = "Community Certified"
 
     return badge
 
