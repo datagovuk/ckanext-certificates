@@ -112,7 +112,6 @@ def get_badge_data(log, url):
         log.exception("There was a problem with the request at {0}".format(url))
         return None
 
-    #TODO: Check for bad response code
     if req.status_code >= 400:
         log.exception("There was a problem with the request at {0}".format(url))
         return {}
@@ -127,6 +126,14 @@ def get_badge_data(log, url):
         'certificate_url': data.get('uri', ''),
         'badge_url': data.get('badges', {}).get('image/png', ''),
     }
+
+    # Source. Dependant on who certified it.
+    # If Self-certified: Self-certified by ['dataset']['publisher']
+    # Otherwise just the text
+
+    badge['source'] = "%s (unverified)" % data['dataset']['publisher']
+    print badge
+
     return badge
 
 
