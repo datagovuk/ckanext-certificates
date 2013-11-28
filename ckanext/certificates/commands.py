@@ -46,14 +46,10 @@ class CertificateCommand(CkanCommand):
 
         site_url = config.get('ckan.site_url')
 
-        # For test
-        site_url = 'http://data.gov.uk'
-
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
         for entry in client.generate_entries(self.log):
-            print entry.get('about') or entry.keys()
 
             # We have to handle the case where the rel='about' might be missing, if so
             # we'll ignore it and catch it next time
