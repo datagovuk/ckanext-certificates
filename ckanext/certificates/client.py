@@ -95,8 +95,16 @@ def fetch_entries(log, url="https://certificates.theodi.org/datasets.feed"):
             log.debug("Feed has run out of pages, all done.")
             out_of_pages = True
         else:
+            next_link = doc.xpath("/ns:feed/ns:link[@rel='next']", namespaces=NS_MAP)
+            if next_link:
+                url = next_link[0].get('href')
+            else:
+                # There is no next link, this must be the last page.
+                out_of_pages = True
+
+        if not out_of_pages:
             log.debug("Feed has another page of data, fetching...")
-            url = doc.xpath("/ns:feed/ns:link[@rel='next']", namespaces=NS_MAP)[0].get('href')
+
 
         del doc
         data.close()
