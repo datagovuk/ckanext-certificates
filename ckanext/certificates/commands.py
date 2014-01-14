@@ -46,6 +46,11 @@ class CertificateCommand(CkanCommand):
 
         site_url = config.get('ckan.site_url')
 
+        # Handling of sites that support www. but don't use it.
+        full_site_url = site_url
+        if not '//www.' in full_site_url:
+            full_site_url = full_site_url.replace('//', '//www.')
+
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
@@ -53,7 +58,8 @@ class CertificateCommand(CkanCommand):
 
             # We have to handle the case where the rel='about' might be missing, if so
             # we'll ignore it and catch it next time
-            if not entry.get('about', '').startswith(site_url):
+            about = entry.get('about', '')
+            if not about.startswith(site_url) and not about.startswith(full_site_url):
                 self.log.debug('Ignoring {0}'.format(entry.get('about','No rel="about"')))
                 continue
 
