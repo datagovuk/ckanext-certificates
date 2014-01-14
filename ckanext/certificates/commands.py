@@ -37,7 +37,6 @@ class CertificateCommand(CkanCommand):
         import ckan.model as model
         model.Session.remove()
         model.Session.configure(bind=model.meta.engine)
-        model.repo.new_revision()
 
         # Logging, post-config
         self.setup_logging()
@@ -51,6 +50,9 @@ class CertificateCommand(CkanCommand):
         if not '//www.' in full_site_url:
             full_site_url = full_site_url.replace('//', '//www.')
 
+        from running_stats import StatsList
+        stats = StatsList()
+
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
@@ -60,22 +62,35 @@ class CertificateCommand(CkanCommand):
             # we'll ignore it and catch it next time
             about = entry.get('about', '')
             if not about.startswith(site_url) and not about.startswith(full_site_url):
-                self.log.debug('Ignoring {0}'.format(entry.get('about','No rel="about"')))
+                self.log.debug('Ignoring {0}'.format(entry.get('about', 'No rel="about"')))
+                stats.add('Ignore - no rel="about" specifying the dataset',
+                          '"%s" %s' % (entry['title'], entry['id']))
                 continue
 
             pkg = self._get_package_from_url(entry.get('about'))
             if not pkg:
                 self.log.error("Unable to find package for {0}".format(entry.get('about')))
+                stats.add('Ignore - no matching dataset', entry.get('about'))
                 continue
 
             # Build the JSON subset we want to describe the certificate
             badge_data = client.get_badge_data(self.log, entry['alternate'])
             badge_data['cert_title'] = entry.get('content', '')
 
-            pkg.extras['odi-certificate'] = json.dumps(badge_data)
-            model.Session.add(pkg)
+            badge_json = json.dumps(badge_data)
+            if pkg.extras.get('odi-certificate') == badge_json:
+                self.log.debug(stats.add('Certificate unchanged',
+                                         badge_data['certificate_url']))
+            else:
+                model.repo.new_revision()
+                pkg.extras['odi-certificate'] = json.dumps(badge_data)
+                operation = 'updated' if 'odi-certificate' in pkg.extras else 'added'
+                self.log.debug(stats.add('Certificate %s' % operation,
+                               '"%s" %s' % (badge_data['title'],
+                                            badge_data['certificate_url'])))
+                model.Session.commit()
 
-        model.Session.commit()
+        self.log.info('Summary:\n' + stats.report())
 
     def _get_package_from_url(self, url):
         """
