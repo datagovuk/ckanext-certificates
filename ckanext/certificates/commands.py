@@ -45,6 +45,11 @@ class CertificateCommand(CkanCommand):
 
         site_url = config.get('ckan.site_url')
 
+        # Handling of sites that support www. but don't use it.
+        full_site_url = site_url
+        if not '//www.' in full_site_url:
+            full_site_url = full_site_url.replace('//', '//www.')
+
         from running_stats import StatsList
         stats = StatsList()
 
@@ -61,7 +66,7 @@ class CertificateCommand(CkanCommand):
                                          '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
-            if not about.startswith(site_url):
+            if not about.startswith(site_url) and not about.startswith(full_site_url):
                 self.log.debug(stats.add('Ignore - "about" field does not reference this site',
                                          '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
