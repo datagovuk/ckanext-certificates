@@ -55,16 +55,26 @@ class CertificateCommand(CkanCommand):
 
             # We have to handle the case where the rel='about' might be missing, if so
             # we'll ignore it and catch it next time
-            if not entry.get('about', '').startswith(site_url):
-                self.log.debug('Ignoring {0}'.format(entry.get('about', 'No rel="about"')))
-                stats.add('Ignore - no rel="about" specifying the dataset',
-                          '"%s" %s' % (entry['title'], entry['id']))
+            about = entry.get('about', '')
+            if not about:
+                self.log.debug(stats.add('Ignore - no rel="about" specifying the dataset',
+                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                continue
+
+            if not about.startswith(site_url):
+                self.log.debug(stats.add('Ignore - "about" field does not reference this site',
+                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                continue
+
+            if not '/dataset/' in entry['about']:
+                self.log.debug(stats.add('Ignore - is "about" DGU but not a dataset',
+                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
             pkg = self._get_package_from_url(entry.get('about'))
             if not pkg:
-                self.log.error("Unable to find package for {0}".format(entry.get('about')))
-                stats.add('Ignore - no matching dataset', entry.get('about'))
+                self.log.error(stats.add('Unable to find the package',
+                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
             # Build the JSON subset we want to describe the certificate
