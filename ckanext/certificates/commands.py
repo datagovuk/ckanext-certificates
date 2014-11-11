@@ -1,19 +1,18 @@
 import json
-import os
-import sys
-
-import ckanext.certificates.client as client
+import re
 
 from ckan.lib.cli import CkanCommand
+
 
 class CertificateCommand(CkanCommand):
     """
     Fetch certificates from theodi.org
 
-    Fetches and parses the ODI atom feed (https://certificates.theodi.org/datasets.feed)
-    checking each entry to see if it exists within the local site. If so then the
-    URL of the HTML rendering, and the URL of the JSON describing the certificate are
-    stored in package extras (odi-certificate-html and odi-certificate-json).
+    Fetches and parses the ODI atom feed
+    (https://certificates.theodi.org/datasets.feed) checking each entry to see
+    if it exists within the local site. If so then the URL of the HTML
+    rendering, and the URL of the JSON describing the certificate are stored in
+    package extras (odi-certificate-html and odi-certificate-json).
     """
     summary = __doc__.strip().split('\n')[0]
     usage = '\n' + __doc__
@@ -27,7 +26,6 @@ class CertificateCommand(CkanCommand):
         import logging
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
-        self.log.debug("Database access initialised")
 
     def command(self):
         # Load configuration
@@ -40,15 +38,14 @@ class CertificateCommand(CkanCommand):
 
         # Logging, post-config
         self.setup_logging()
+        self.log.debug("Database access initialised")
 
         from pylons import config
 
-        site_url = config.get('ckan.site_url')
-
-        # Handling of sites that support www. but don't use it.
-        full_site_url = site_url
-        if not '//www.' in full_site_url:
-            full_site_url = full_site_url.replace('//', '//www.')
+        # 'site_url_filter' decides whether a certificate is from this site or
+        # not from its 'about' field
+        site_url_filter, site_url_regex = self._get_site_url_filter(config)
+        self.log.debug('Site url filter (regex): %s', site_url_regex)
 
         from running_stats import StatsList
         stats = StatsList()
@@ -56,6 +53,7 @@ class CertificateCommand(CkanCommand):
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
+        import ckanext.certificates.client as client
         for entry in client.generate_entries(self.log):
 
             # We have to handle the case where the rel='about' might be missing, if so
@@ -66,7 +64,7 @@ class CertificateCommand(CkanCommand):
                                          '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
-            if not about.startswith(site_url) and not about.startswith(full_site_url):
+            if not site_url_filter.search(about):
                 self.log.debug(stats.add('Ignore - "about" field does not reference this site',
                                          '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
@@ -84,16 +82,17 @@ class CertificateCommand(CkanCommand):
 
             # Build the JSON subset we want to describe the certificate
             badge_data = client.get_badge_data(self.log, entry['alternate'])
-            badge_data['cert_title'] = entry.get('content', '')
+            badge_data['cert_title'] = entry.get('content', '')  # e.g. 'Basic Level Certificate'
 
             badge_json = json.dumps(badge_data)
             if pkg.extras.get('odi-certificate') == badge_json:
                 self.log.debug(stats.add('Certificate unchanged',
                                          badge_data['certificate_url']))
             else:
+                operation = 'updated' if 'odi-certificate' in pkg.extras \
+                    else 'added'
                 model.repo.new_revision()
                 pkg.extras['odi-certificate'] = json.dumps(badge_data)
-                operation = 'updated' if 'odi-certificate' in pkg.extras else 'added'
                 self.log.debug(stats.add('Certificate %s' % operation,
                                '"%s" %s' % (badge_data['title'],
                                             badge_data['certificate_url'])))
@@ -101,18 +100,38 @@ class CertificateCommand(CkanCommand):
 
         self.log.info('Summary:\n' + stats.report())
 
-    def _get_package_from_url(self, url):
+    @classmethod
+    def _get_package_from_url(cls, url):
         """
         Pulls data from the entry in an attempt to find a local package,
         which, if successful is returned.  None is returned if the package
         has been deleted, or is not a package for this site.
         """
-        from urlparse import urlparse
         import ckan.model as model
+
+        name = cls._get_package_name_from_url(url)
+        return model.Package.get(name)
+
+    @staticmethod
+    def _get_package_name_from_url(url):
+        from urlparse import urlparse
 
         # Package name is the last part of the URL
         obj = urlparse(url)
-        name = obj.path.split('/')[-1]
+        name = obj.path.rstrip('/').split('/')[-1]
+        return name
 
-        return model.Package.get(name)
-
+    @staticmethod
+    def _get_site_url_filter(config):
+        site_url_regex = config.get('ckanext.certificates.site_url_regex')
+        if not site_url_regex:
+            site_url = config.get('ckanext.certificates.site_url') or \
+                config.get('ckan.site_url')
+            site_url_regex = '^' + re.escape(site_url) + '.*'
+            # allow https variation
+            site_url_regex = re.sub(r'https?\\:', r'https?\:', site_url_regex)
+            # allow www. variation
+            site_url_regex = re.sub(r'\\/\\/(www\\\.)?', r'\/\/(www.)?',
+                                    site_url_regex)
+        site_url_filter = re.compile(site_url_regex)
+        return site_url_filter, site_url_regex

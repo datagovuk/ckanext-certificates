@@ -1,12 +1,16 @@
 import json
 import re
+from cStringIO import StringIO
 
 import requests
 from lxml import etree
-from cStringIO import StringIO
+from pylons import config
 
 NS_MAP = {'ns': 'http://www.w3.org/2005/Atom'}
 Q_NAME = re.compile("{(?P<ns>.*)}(?P<element>.*)")
+
+DEFAULT_CERTIFICATES_FEED_URL = 'https://certificates.theodi.org/datasets.feed'
+
 
 def entry_to_dict(entry):
     """
@@ -44,20 +48,24 @@ def entry_to_dict(entry):
             d[name] = node.text
     return d
 
-def generate_entries(log, url="https://certificates.theodi.org/datasets.feed"):
+
+def generate_entries(log, url=None):
     """
     Yields dictionaries representing the entries found in the ODI Atom feed.
     """
-    for entry in fetch_entries(log):
+    for entry in fetch_entries(log, url=url):
         yield entry_to_dict(entry)
 
 
-def fetch_entries(log, url="https://certificates.theodi.org/datasets.feed"):
+def fetch_entries(log, url=None):
     """
-    Process the Atom feed at the specified URL, and yields all of the entries it
-    can find.  If the url that the feed was fetched from is NOT the last URL, then
-    the next page is retrieved and processed in the same way.
+    Process the Atom feed at the specified URL, and yields all of the entries
+    it can find.  If the url that the feed was fetched from is NOT the last
+    URL, then the next page is retrieved and processed in the same way.
     """
+
+    url = url or config.get('ckanext.certificates.feed_url') or \
+        DEFAULT_CERTIFICATES_FEED_URL
     out_of_pages = False
 
     while not out_of_pages:
@@ -68,8 +76,9 @@ def fetch_entries(log, url="https://certificates.theodi.org/datasets.feed"):
             log.exception(request_err)
             return
 
-        # We wrap the response in a StringIO to work around problems with various
-        # versions of LXML processing, or not processing, utf8 properly.
+        # We wrap the response in a StringIO to work around problems with
+        # various versions of LXML processing, or not processing, utf8
+        # properly.
         data = StringIO(req.content)
 
         try:
@@ -88,8 +97,7 @@ def fetch_entries(log, url="https://certificates.theodi.org/datasets.feed"):
         self_url = doc.xpath("/ns:feed/ns:link[@rel='self']", namespaces=NS_MAP)[0].get('href')
         last_url = doc.xpath("/ns:feed/ns:link[@rel='last']", namespaces=NS_MAP)[0].get('href')
 
-        log.debug("SELF URL: {0}".format(self_url))
-        log.debug("LAST URL: {0}".format(last_url))
+        log.debug("Page URLs self: {0} last: {1}".format(self_url, last_url))
 
         if self_url == last_url:
             log.debug("Feed has run out of pages, all done.")
@@ -105,9 +113,9 @@ def fetch_entries(log, url="https://certificates.theodi.org/datasets.feed"):
         if not out_of_pages:
             log.debug("Feed has another page of data, fetching...")
 
-
         del doc
         data.close()
+
 
 def get_badge_data(log, url):
     """
@@ -117,11 +125,11 @@ def get_badge_data(log, url):
         req = requests.get(url)
     except Exception, request_err:
         log.exception(request_err)
-        log.exception("There was a problem with the request at {0}".format(url))
+        log.exception("There was a problem with the request at {0}: {1}".format(url, request_err))
         return None
 
     if req.status_code >= 400:
-        log.exception("There was a problem with the request at {0}".format(url))
+        log.exception("There was a problem with the request at {0}: status {1}".format(url, req.status_code))
         return {}
 
     data = json.loads(req.content)['certificate']
@@ -139,9 +147,13 @@ def get_badge_data(log, url):
     # Source. Dependant on who certified it.
     cert_type = badge.get('certification_type')
     if cert_type == 'self certified':
-        badge['source'] = "Self-Certified by %s (unverified)" % data['dataset']['publisher']
+        badge['source'] = "Self-Certified by %s (unverified)" \
+            % data['dataset']['publisher']
     elif cert_type == 'community certified':
         badge['source'] = "Community Certified"
+    else:
+        log.warning('certification_type not recognized: %s', cert_type)
+        badge['source'] = 'Certification: %s' % cert_type.capitalize()
 
     return badge
 
