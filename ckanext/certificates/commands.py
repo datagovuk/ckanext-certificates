@@ -82,6 +82,10 @@ class CertificateCommand(CkanCommand):
 
             # Build the JSON subset we want to describe the certificate
             badge_data = client.get_badge_data(self.log, entry['alternate'])
+            if not badge_data:
+                self.log.info(stats.add('Error fetching badge data - skipped',
+                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                continue
             badge_data['cert_title'] = entry.get('content', '')  # e.g. 'Basic Level Certificate'
 
             badge_json = json.dumps(badge_data)
