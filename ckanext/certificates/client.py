@@ -152,7 +152,7 @@ def get_badge_data(log, url):
     elif cert_type == 'community certified':
         badge['source'] = "Community Certified"
     elif cert_type == 'automatically awarded':
-        badge['source'] = "Automatically Awarded"
+        badge['source'] = "Automatically awarded by ODI"
     else:
         log.warning('certification_type not recognized: %s', cert_type)
         badge['source'] = 'Certification: %s' % cert_type.capitalize()
