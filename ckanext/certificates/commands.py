@@ -1,5 +1,7 @@
 import json
 import re
+import logging
+import datetime
 
 from ckan.lib.cli import CkanCommand
 
@@ -21,11 +23,10 @@ class CertificateCommand(CkanCommand):
 
     def __init__(self, name):
         super(CertificateCommand, self).__init__(name)
-
-    def setup_logging(self):
-        import logging
-        self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.DEBUG)
+        self.parser.add_option('--hours', dest='hours',
+            help='Filter to the most recent X hours of changes')
+        self.parser.add_option('--days', dest='days',
+            help='Filter to the most recent X days of changes')
 
     def command(self):
         # Load configuration
@@ -37,72 +38,89 @@ class CertificateCommand(CkanCommand):
         model.Session.configure(bind=model.meta.engine)
 
         # Logging, post-config
-        self.setup_logging()
-        self.log.debug("Database access initialised")
+        log = logging.getLogger(__name__)
+        log.setLevel(logging.DEBUG)
+        log.debug("Database access initialised")
 
         from pylons import config
 
         # 'site_url_filter' decides whether a certificate is from this site or
         # not from its 'about' field
-        site_url_filter, site_url_regex = self._get_site_url_filter(config)
-        self.log.debug('Site url filter (regex): %s', site_url_regex)
+        site_url_filter, site_url_filter_regex = \
+            CertificateFetcher._get_site_url_filter(config)
+        log.debug('Site url filter (regex): %s', site_url_filter_regex)
 
+        # Time filter
+        time_filter_h = int(self.options.hours or 0)
+        time_filter_d = int(self.options.days or 0)
+        since_datetime = datetime.datetime.utcnow() - \
+            datetime.timedelta(days=time_filter_d, hours=time_filter_h)
+
+        CertificateFetcher.fetch(site_url_filter, since_datetime)
+
+
+class CertificateFetcher(object):
+
+    @classmethod
+    def fetch(cls, site_url_filter, since_datetime):
+        import ckan.model as model
         from running_stats import StatsList
+        log = logging.getLogger(__name__)
         stats = StatsList()
 
         # Use the generate_entries generator to get all of
         # the entries from the ODI Atom feed.  This should
         # correctly handle all of the pages within the feed.
         import ckanext.certificates.client as client
-        for entry in client.generate_entries(self.log):
+        for entry in client.generate_entries(since=since_datetime):
 
-            # We have to handle the case where the rel='about' might be missing, if so
-            # we'll ignore it and catch it next time
+            # We have to handle the case where the rel='about' might be
+            # missing, if so we'll ignore it and catch it next time
             about = entry.get('about', '')
             if not about:
-                self.log.debug(stats.add('Ignore - no rel="about" specifying the dataset',
-                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                log.debug(stats.add('Ignore - no rel="about" specifying the dataset',
+                                    '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
             if not site_url_filter.search(about):
-                self.log.debug(stats.add('Ignore - "about" field does not reference this site',
-                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                log.debug(stats.add('Ignore - "about" field does not reference this site',
+                                    '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
 
             if not '/dataset/' in entry['about']:
-                self.log.debug(stats.add('Ignore - is "about" DGU but not a dataset',
-                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                log.debug(stats.add('Ignore - is "about" DGU but not a dataset',
+                                    '%s "%s" %s' % (about, entry['about'], entry['id'])))
                 continue
 
-            pkg = self._get_package_from_url(entry.get('about'))
+            pkg = cls._get_package_from_url(entry.get('about'))
             if not pkg:
-                self.log.error(stats.add('Unable to find the package',
-                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                log.error(stats.add('Unable to find the package',
+                                    '%s "%s" %s %r' % (about, entry['about'], entry['id'], entry.get('about'))))
                 continue
 
             # Build the JSON subset we want to describe the certificate
-            badge_data = client.get_badge_data(self.log, entry['alternate'])
+            badge_data = client.get_badge_data(entry['alternate'])
             if not badge_data:
-                self.log.info(stats.add('Error fetching badge data - skipped',
-                                         '%s "%s" %s' % (about, entry['title'], entry['id'])))
+                log.info(stats.add('Error fetching badge data - skipped',
+                                   '%s "%s" %s' % (about, entry['title'], entry['id'])))
                 continue
             badge_data['cert_title'] = entry.get('content', '')  # e.g. 'Basic Level Certificate'
 
             badge_json = json.dumps(badge_data)
             if pkg.extras.get('odi-certificate') == badge_json:
-                self.log.debug(stats.add('Certificate unchanged',
+                log.debug(stats.add('Certificate unchanged',
                                          badge_data['certificate_url']))
             else:
                 operation = 'updated' if 'odi-certificate' in pkg.extras \
                     else 'added'
                 model.repo.new_revision()
                 pkg.extras['odi-certificate'] = json.dumps(badge_data)
-                self.log.debug(stats.add('Certificate %s' % operation,
+                log.debug(stats.add('Certificate %s' % operation,
                                '"%s" %s' % (badge_data['title'],
                                             badge_data['certificate_url'])))
                 model.Session.commit()
 
-        self.log.info('Summary:\n' + stats.report())
+        log.info('Summary:\n' + stats.report())
 
     @classmethod
     def _get_package_from_url(cls, url):

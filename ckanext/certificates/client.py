@@ -1,10 +1,14 @@
 import json
 import re
 from cStringIO import StringIO
+import urlparse
+import urllib
 
 import requests
 from lxml import etree
 from pylons import config
+
+log = __import__('logging').getLogger(__name__)
 
 NS_MAP = {'ns': 'http://www.w3.org/2005/Atom'}
 Q_NAME = re.compile("{(?P<ns>.*)}(?P<element>.*)")
@@ -49,23 +53,41 @@ def entry_to_dict(entry):
     return d
 
 
-def generate_entries(log, url=None):
+def generate_entries(url=None, since=None):
     """
     Yields dictionaries representing the entries found in the ODI Atom feed.
+
+    since - filter to only changes after this datetime (datetime type)
     """
-    for entry in fetch_entries(log, url=url):
+    for entry in fetch_entries(url=url, since=since):
         yield entry_to_dict(entry)
 
 
-def fetch_entries(log, url=None):
+def set_url_parameter(url, key, value):
+    url_parts = urlparse.urlparse(url)
+    query = urlparse.parse_qs(url_parts.query)
+    query[key] = value
+    url_parts = url_parts._replace(
+        query=urllib.urlencode(query, doseq=True))
+    return urlparse.urlunparse(url_parts)
+
+
+def fetch_entries(url=None, since=None):
     """
     Process the Atom feed at the specified URL, and yields all of the entries
     it can find.  If the url that the feed was fetched from is NOT the last
     URL, then the next page is retrieved and processed in the same way.
+
+    since - filter to only changes after this datetime (datetime type)
     """
 
     url = url or config.get('ckanext.certificates.feed_url') or \
         DEFAULT_CERTIFICATES_FEED_URL
+
+    # Add the 'since' parameter to the url
+    if since:
+        url = set_url_parameter(url, 'since', since.isoformat() + 'Z')
+
     out_of_pages = False
 
     while not out_of_pages:
@@ -117,7 +139,7 @@ def fetch_entries(log, url=None):
         data.close()
 
 
-def get_badge_data(log, url):
+def get_badge_data(url):
     """
     Fetches the JSON representing a specific certificate
     """
