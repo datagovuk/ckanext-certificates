@@ -12,9 +12,8 @@ class CertificateCommand(CkanCommand):
 
     Fetches and parses the ODI atom feed
     (https://certificates.theodi.org/datasets.feed) checking each entry to see
-    if it exists within the local site. If so then the URL of the HTML
-    rendering, and the URL of the JSON describing the certificate are stored in
-    package extras (odi-certificate-html and odi-certificate-json).
+    if it exists within the local site. If so then information about the
+    certificate is stored as JSON in package extras as "odi-certificate".
     """
     summary = __doc__.strip().split('\n')[0]
     usage = '\n' + __doc__
