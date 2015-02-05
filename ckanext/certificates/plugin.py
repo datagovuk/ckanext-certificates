@@ -14,6 +14,7 @@ class CertificatesPlugin(p.SingletonPlugin):
     available.
     '''
     p.implements(p.ITemplateHelpers, inherit=True)
+    p.implements(p.IPackageController, inherit=True)
 
     def get_helpers(self):
         """
@@ -28,3 +29,11 @@ class CertificatesPlugin(p.SingletonPlugin):
             'get_certificate_data': helpers.get_certificate_data,
         }
         return helper_dict
+
+    def after_create(self, context, pkg_dict):
+        import ckanext.certificates.helpers as helpers
+        helpers.create_certificate(pkg_dict)
+
+    def after_update(self, context, pkg_dict):
+        import ckanext.certificates.helpers as helpers
+        helpers.update_certificate(pkg_dict)
