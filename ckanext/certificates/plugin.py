@@ -1,8 +1,10 @@
+import uuid
 from logging import getLogger
 from pylons import config
 
 import ckan.plugins as p
 import ckan.plugins.toolkit as toolkit
+from ckan.lib.celery_app import celery
 
 log = getLogger(__name__)
 
@@ -31,9 +33,7 @@ class CertificatesPlugin(p.SingletonPlugin):
         return helper_dict
 
     def after_create(self, context, pkg_dict):
-        import ckanext.certificates.helpers as helpers
-        helpers.create_certificate(pkg_dict)
+        celery.send_task('certificate.create', args=[pkg_dict], task_id=str(uuid.uuid4()))
 
     def after_update(self, context, pkg_dict):
-        import ckanext.certificates.helpers as helpers
-        helpers.update_certificate(pkg_dict)
+        celery.send_task('certificate.update', args=[pkg_dict], task_id=str(uuid.uuid4()))

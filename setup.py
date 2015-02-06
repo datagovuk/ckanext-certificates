@@ -30,5 +30,8 @@ setup(
 
     [ckan.plugins]
 	certificates=ckanext.certificates.plugin:CertificatesPlugin
+
+    [ckan.celery_task]
+        tasks = ckanext.certificates.celery_import:task_imports
 	""",
 )
