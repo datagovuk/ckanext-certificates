@@ -2,6 +2,7 @@ import requests
 import re
 import json
 import os
+import time
 import ckan.plugins.toolkit as toolkit
 from urlparse import urljoin
 from pylons import config
@@ -49,7 +50,30 @@ def _post_request(relative_url, package_name):
     data = _get_request_data(package_name)
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=data, auth=auth, headers=headers)
-    print "XXX", response.json()
+    return response
+
+def _update_badge_data(pkg_dict, badge_data):
+    import ckan.model as model
+
+    model.repo.new_revision()
+    pkg = model.Package.get(pkg_dict['name'])
+    pkg.extras['odi-certificate'] = json.dumps(badge_data)
+    model.Session.commit()
+
+def _check_for_certificate_update(pkg_dict, response):
+    auth = requests.auth.HTTPBasicAuth(CERTIFICATE_USER, CERTIFICATE_PASS)
+    while response.json()['success'] == 'pending':
+        time.sleep(2)
+        status_url = response.json()['dataset_url']
+
+        response = requests.get(status_url, auth=auth)
+
+    import ckanext.certificates.client as client
+    dataset_id = response.json()['dataset_id']
+    url = urljoin(CERTIFICATE_SERVER, "/datasets/%d/certificate.json" % dataset_id)
+    badge_data = client.get_badge_data(url)
+
+    _update_badge_data(pkg_dict, badge_data)
 
 @task(name='certificate.create')
 def create_certificate(pkg_dict):
@@ -57,7 +81,9 @@ def create_certificate(pkg_dict):
     Send request to create new certificate when a package is created
     """
     load_config()
-    _post_request('/datasets', pkg_dict['name'])
+    response = _post_request('/datasets', pkg_dict['name'])
+
+    _check_for_certificate_update(pkg_dict, response)
 
 @task(name='certificate.update')
 def update_certificate(pkg_dict):
@@ -75,4 +101,6 @@ def update_certificate(pkg_dict):
 
     dataset_id = re.findall("\d+", certificate['certificate_url'])[0]
     relative_url = '/datasets/%s/certificates' % dataset_id
-    _post_request(relative_url, pkg_dict['name'])
+    response = _post_request(relative_url, pkg_dict['name'])
+
+    _check_for_certificate_update(pkg_dict, response)
